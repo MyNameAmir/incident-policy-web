@@ -29,7 +29,7 @@ fi
 
 # Caddyfile: serve static frontend + proxy Reflex backend endpoints
 cat > Caddyfile <<EOF
-:{$PORT} {
+:${PORT} {
   encode gzip
 
   root * ${FRONTEND_DIR}
