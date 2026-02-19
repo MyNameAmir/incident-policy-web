@@ -1,47 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generate the web folder(s)
-reflex init
+# Render provides $PORT
+: "${PORT:=3000}"
 
-# Patch ANY generated vite config under any ".web" folder
-python - <<'PY'
-from pathlib import Path
-import re
+# Start Reflex backend only (no Vite dev server)
+# If your reflex version doesn't support --backend-only, see note below.
+reflex run --env prod --backend-only --backend-port 8000 &
+BACK_PID=$!
 
-targets = list(Path(".").rglob(".web/vite.config.*"))
-print(f"[patch] Found {len(targets)} vite config(s):")
-for p in targets:
-    print(" -", p)
+# Pick the static export directory (varies by Reflex versions)
+if [ -d ".web/_static" ]; then
+  FRONTEND_DIR=".web/_static"
+elif [ -d ".web/build/client" ]; then
+  FRONTEND_DIR=".web/build/client"
+else
+  echo "ERROR: Cannot find exported frontend directory under .web/"
+  echo "Expected .web/_static or .web/build/client"
+  exit 1
+fi
 
-if not targets:
-    raise SystemExit("[patch] No vite.config found under any .web folder")
+# Install a tiny Node static server (lighter than Vite dev server)
+# (You already have node available since Reflex uses it for frontend build steps)
+npx --yes serve -s "$FRONTEND_DIR" -l "0.0.0.0:${PORT}" &
+FRONT_PID=$!
 
-for p in targets:
-    s = p.read_text(encoding="utf-8")
-
-    # If already patched, skip
-    if "allowedHosts" in s:
-        print(f"[patch] already has allowedHosts: {p}")
-        continue
-
-    new = s
-
-    # Insert allowedHosts into `server: { ... }`
-    new, n1 = re.subn(r"(server\s*:\s*\{\s*)", r"\1\n    allowedHosts: true,\n", new, count=1)
-
-    # Fallback insert into `server = { ... }`
-    if n1 == 0:
-        new, n2 = re.subn(r"(server\s*=\s*\{\s*)", r"\1\n    allowedHosts: true,\n", new, count=1)
-    else:
-        n2 = 0
-
-    if n1 == 0 and n2 == 0:
-        raise SystemExit(f"[patch] Could not find server block to patch in {p}")
-
-    p.write_text(new, encoding="utf-8")
-    print(f"[patch] Patched {p}")
-PY
-
-# Start Reflex
-exec reflex run --backend-only --backend-host 0.0.0.0 --backend-port "${PORT:-8000}"
+# Keep container alive
+wait $BACK_PID $FRONT_PID
