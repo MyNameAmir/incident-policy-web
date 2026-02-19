@@ -30,35 +30,34 @@ fi
 # Write Caddyfile
 cat > Caddyfile <<EOF
 {
-  # Prevent public access to Caddy's admin API (fixes 403 host not allowed spam)
   admin off
 }
 
 :${PORT} {
   encode gzip
 
-  # Serve exported Reflex frontend (SPA)
-  root * ${FRONTEND_DIR}
-  try_files {path} {path}/ /index.html
-  file_server
-
-  # Proxy Reflex backend endpoints (including WebSocket)
+  # Proxy Reflex backend FIRST (websocket + api)
   @event path /_event*
   reverse_proxy @event 127.0.0.1:8000 {
     header_up Host {host}
-    header_up X-Forwarded-Host {host}
     header_up X-Forwarded-Proto {scheme}
     header_up X-Forwarded-For {remote_host}
   }
 
-  @api path /_upload* /ping
-  reverse_proxy @api 127.0.0.1:8000 {
+  @upload path /_upload*
+  reverse_proxy @upload 127.0.0.1:8000 {
     header_up Host {host}
-    header_up X-Forwarded-Host {host}
     header_up X-Forwarded-Proto {scheme}
     header_up X-Forwarded-For {remote_host}
   }
+
+  @ping path /ping
+  reverse_proxy @ping 127.0.0.1:8000
+
+  # Serve static frontend
+  root * ${FRONTEND_DIR}
+  file_server
+  try_files {path} {path}/ /index.html
 }
 EOF
-
 exec "${CADDY_DIR}/caddy" run --config Caddyfile
