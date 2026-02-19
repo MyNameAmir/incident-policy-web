@@ -22,7 +22,7 @@ fi
 
 # Install a tiny Node static server (lighter than Vite dev server)
 # (You already have node available since Reflex uses it for frontend build steps)
-npx --yes serve -s "$FRONTEND_DIR" -l "0.0.0.0:${PORT}" &
+npx --yes serve -s "$FRONTEND_DIR" -l "${PORT}" &
 FRONT_PID=$!
 
 # Keep container alive
