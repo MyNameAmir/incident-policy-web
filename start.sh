@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Render provides $PORT
 : "${PORT:=3000}"
 
-# Start Reflex backend only (no Vite dev server)
-# If your reflex version doesn't support --backend-only, see note below.
-reflex run --env prod --backend-only --backend-port 8000 &
+# Start Reflex backend only on an internal port
+reflex run --env prod --backend-only --backend-host 0.0.0.0 --backend-port 8000 &
 BACK_PID=$!
 
-# Pick the static export directory (varies by Reflex versions)
+# Find exported frontend directory
 if [ -d ".web/_static" ]; then
   FRONTEND_DIR=".web/_static"
 elif [ -d ".web/build/client" ]; then
@@ -20,10 +18,8 @@ else
   exit 1
 fi
 
-# Install a tiny Node static server (lighter than Vite dev server)
-# (You already have node available since Reflex uses it for frontend build steps)
+# Serve frontend on Render's public port
 npx --yes serve -s "$FRONTEND_DIR" -l "${PORT}" &
 FRONT_PID=$!
 
-# Keep container alive
 wait $BACK_PID $FRONT_PID
