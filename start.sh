@@ -1,63 +1,76 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PORT:=10000}"
+echo "[start.sh] Starting deployment..."
 
-FRONTEND_DIR=".web/build/client"
+# Render provides this automatically
+export PORT="${PORT:-10000}"
 
-if [ ! -f "${FRONTEND_DIR}/index.html" ]; then
-  echo "ERROR: ${FRONTEND_DIR}/index.html not found."
-  echo "Make sure Render Build Command is:"
-  echo "  pip install -r requirements.txt && reflex export --frontend-only --no-zip"
-  ls -la .web || true
-  ls -la "${FRONTEND_DIR}" || true
-  exit 1
-fi
+echo "[start.sh] Using public PORT=$PORT"
 
-# Start Reflex backend internally
-reflex run --env prod --backend-only --backend-host 127.0.0.1 --backend-port 8000 &
-BACK_PID=$!
+############################################
+# 1. Write Caddyfile dynamically
+############################################
 
-# Download Caddy
-CADDY_DIR=".caddybin"
-mkdir -p "${CADDY_DIR}"
-if [ ! -x "${CADDY_DIR}/caddy" ]; then
-  echo "Downloading caddy..."
-  curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o "${CADDY_DIR}/caddy"
-  chmod +x "${CADDY_DIR}/caddy"
-fi
-
-# Write Caddyfile
 cat > Caddyfile <<EOF
 {
-  admin off
+    # Disable admin API to prevent "host not allowed" errors
+    admin off
 }
 
-:${PORT} {
-  encode gzip
+:$PORT {
 
-  # Proxy Reflex backend FIRST (websocket + api)
-  @event path /_event*
-  reverse_proxy @event 127.0.0.1:8000 {
-    header_up Host {host}
-    header_up X-Forwarded-Proto {scheme}
-    header_up X-Forwarded-For {remote_host}
-  }
+    encode gzip
 
-  @upload path /_upload*
-  reverse_proxy @upload 127.0.0.1:8000 {
-    header_up Host {host}
-    header_up X-Forwarded-Proto {scheme}
-    header_up X-Forwarded-For {remote_host}
-  }
+    # Serve Reflex frontend static build
+    root * .web
+    file_server
 
-  @ping path /ping
-  reverse_proxy @ping 127.0.0.1:8000
+    # SPA routing support
+    try_files {path} /index.html
 
-  # Serve static frontend
-  root * ${FRONTEND_DIR}
-  file_server
-  try_files {path} {path}/ /index.html
+    # Proxy Reflex backend (including websocket)
+    @backend {
+        path /_event* /ping /_ping /api* /upload* /_upload*
+    }
+
+    reverse_proxy @backend 127.0.0.1:8000
 }
 EOF
-exec "${CADDY_DIR}/caddy" run --config Caddyfile
+
+echo "[start.sh] Caddyfile created"
+
+############################################
+# 2. Start Reflex backend ONLY
+############################################
+
+echo "[start.sh] Starting Reflex backend..."
+
+reflex run \
+  --env prod \
+  --backend-host 0.0.0.0 \
+  --backend-port 8000 \
+  >/tmp/reflex.log 2>&1 &
+
+############################################
+# 3. Download Caddy if not present
+############################################
+
+if [ ! -f ./caddy ]; then
+    echo "[start.sh] Downloading Caddy..."
+
+    curl -L \
+      https://github.com/caddyserver/caddy/releases/latest/download/caddy_linux_amd64.tar.gz \
+      -o caddy.tar.gz
+
+    tar -xzf caddy.tar.gz
+    chmod +x caddy
+fi
+
+############################################
+# 4. Start Caddy (public server)
+############################################
+
+echo "[start.sh] Starting Caddy..."
+
+exec ./caddy run --config Caddyfile --adapter caddyfile
