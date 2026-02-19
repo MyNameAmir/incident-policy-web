@@ -44,4 +44,4 @@ for p in targets:
 PY
 
 # Start Reflex
-exec reflex run
+exec reflex run --backend-only --backend-host 0.0.0.0 --backend-port "${PORT:-8000}"
