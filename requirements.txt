@@ -1,2 +1,7 @@
 
 reflex==0.8.26
+openai
+python-dotenv
+PyPDF2
+nltk
+numpy
