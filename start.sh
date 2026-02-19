@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[start.sh] Starting deployment..."
 export PORT="${PORT:-10000}"
-echo "[start.sh] Public PORT=$PORT"
+echo "[start.sh] PORT=$PORT"
 
-# Where your exported frontend is. If your export uses a different folder,
-# change this to ".web/build/client"
-FRONTEND_DIR=".web"
-
-# ---- Write Caddyfile dynamically ----
+# --- Write Caddyfile ---
 cat > Caddyfile <<EOF
 {
   admin off
@@ -18,7 +13,7 @@ cat > Caddyfile <<EOF
 :${PORT} {
   encode gzip
 
-  root * ${FRONTEND_DIR}
+  root * .web
   file_server
   try_files {path} /index.html
 
@@ -26,36 +21,46 @@ cat > Caddyfile <<EOF
   reverse_proxy @backend 127.0.0.1:8000
 }
 EOF
-echo "[start.sh] Caddyfile created"
 
-# ---- Start Reflex backend (bind to 0.0.0.0) ----
-echo "[start.sh] Starting Reflex backend on 0.0.0.0:8000..."
-reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 >/tmp/reflex.log 2>&1 &
+echo "[start.sh] Starting Reflex backend..."
+# Start backend and log everything
+reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 > /tmp/reflex.log 2>&1 &
+BACK_PID=$!
 
-# ---- Wait for backend to be reachable ----
-echo "[start.sh] Waiting for backend to be ready..."
+# If Reflex dies quickly, print logs and exit
+sleep 2
+if ! kill -0 "$BACK_PID" 2>/dev/null; then
+  echo "[start.sh] Reflex backend exited immediately."
+  echo "------ /tmp/reflex.log (last 400 lines) ------"
+  tail -n 400 /tmp/reflex.log || true
+  echo "---------------------------------------------"
+  exit 1
+fi
+
+echo "[start.sh] Waiting for backend /ping..."
 for i in $(seq 1 60); do
   if curl -fsS "http://127.0.0.1:8000/ping" >/dev/null 2>&1; then
-    echo "[start.sh] Backend is up."
+    echo "[start.sh] Backend is reachable."
     break
   fi
   sleep 1
   if [ "$i" -eq 60 ]; then
-    echo "[start.sh] ERROR: Backend never became reachable on 127.0.0.1:8000"
-    echo "------ Reflex log (last 200 lines) ------"
-    tail -n 200 /tmp/reflex.log || true
-    echo "----------------------------------------"
+    echo "[start.sh] Backend never became reachable."
+    echo "------ /tmp/reflex.log (last 400 lines) ------"
+    tail -n 400 /tmp/reflex.log || true
+    echo "---------------------------------------------"
+    # Also show running processes for debugging
+    ps aux | head -n 30 || true
     exit 1
   fi
 done
 
-# ---- Download Caddy binary reliably ----
+# --- Get Caddy ---
 if [ ! -x ./caddy ]; then
-  echo "[start.sh] Downloading caddy binary..."
+  echo "[start.sh] Downloading caddy..."
   curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o ./caddy
   chmod +x ./caddy
 fi
 
-# ---- Start Caddy ----
 echo "[start.sh] Starting Caddy..."
 exec ./caddy run --config Caddyfile --adapter caddyfile
