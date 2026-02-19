@@ -1,0 +1,6 @@
+{
+  "policy_hash": "3a4fcc089d998840e2b6aaea1627de4229d52c1b07d0722390900d1b32ae93f3",
+  "max_sentences": 6,
+  "overlap": 2,
+  "embedding_model": "text-embedding-3-small"
+}
