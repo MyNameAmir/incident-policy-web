@@ -69,7 +69,8 @@ cat > Caddyfile <<EOF
     format console
   }
 
-  @reflex path /_event* /_api* /ping* /health*
+  # ✅ include upload endpoints
+  @reflex path /_event* /_api* /_upload* /_files* /ping* /health*
 
   handle @reflex {
     reverse_proxy 127.0.0.1:8000 {
@@ -113,6 +114,9 @@ caddy validate --config Caddyfile --adapter caddyfile || {
 echo "[start.sh] Testing backend directly (local):"
 curl -sS -o /dev/null -w "GET /ping -> %{http_code}\n" http://127.0.0.1:8000/ping || true
 curl -sS -o /dev/null -w "GET /_event -> %{http_code}\n" http://127.0.0.1:8000/_event || true
+
+echo "[start.sh] Checking that backend has upload route (expect 404/405/200, but NOT from Caddy):"
+curl -sS -o /dev/null -w "POST /_upload -> %{http_code}\n" -X POST http://127.0.0.1:8000/_upload || true
 
 echo "[start.sh] Starting Caddy on port ${PORT}..."
 exec caddy run --config Caddyfile --adapter caddyfile
