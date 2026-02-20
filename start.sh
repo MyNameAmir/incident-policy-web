@@ -55,25 +55,43 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 caddy version || true
 
-# 4) Caddyfile
-cat > Caddyfile <<CADDY
+echo "[start.sh] Writing Caddyfile with literal port: ${PORT}"
+
+cat > Caddyfile <<EOF
 {
   admin off
 }
 
-:{$PORT}
+:${PORT}
 
-root * ${STATIC_DIR}
+root * .web/build/client
 file_server
 
 @reflex_backend path /_event* /_api* /ping* /health*
 reverse_proxy @reflex_backend 127.0.0.1:8000
 
 try_files {path} /index.html
-CADDY
+EOF
 
-echo "[start.sh] Caddyfile:"
-cat Caddyfile
+echo "[start.sh] Caddyfile content (with line numbers):"
+nl -ba Caddyfile
 
-echo "[start.sh] Starting Caddy..."
+echo "[start.sh] Sanity check: show listen line:"
+grep -nE '^\s*:' Caddyfile || true
+
+echo "[start.sh] Checking for invalid brace syntax..."
+if grep -nE '^\s*:\s*\{|\{\$' Caddyfile; then
+  echo "[start.sh] ERROR: Invalid brace syntax in listen line."
+  exit 1
+fi
+
+echo "[start.sh] Validating Caddyfile..."
+caddy validate --config Caddyfile --adapter caddyfile || {
+  echo "[start.sh] Caddy validation FAILED"
+  echo "[start.sh] Dumping Caddyfile again:"
+  cat Caddyfile
+  exit 1
+}
+
+echo "[start.sh] Starting Caddy on port ${PORT}..."
 exec caddy run --config Caddyfile --adapter caddyfile
