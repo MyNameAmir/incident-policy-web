@@ -12,29 +12,44 @@ echo "[start.sh] Starting Reflex backend on 127.0.0.1:8000 (internal only)..."
 reflex run --env prod --backend-only --backend-host 127.0.0.1 --backend-port 8000 > /tmp/reflex.log 2>&1 &
 BACK_PID=$!
 
-# Wait for backend to be reachable
-echo "[start.sh] Waiting for backend..."
-for i in {1..60}; do
-  if curl -fsS "http://127.0.0.1:8000/ping" >/dev/null 2>&1; then
-    echo "[start.sh] Backend is up."
-    break
-  fi
-  sleep 1
-done
+# ----------------------------
+# 2) Wait for backend TCP port 8000 (NOT /ping)
+# ----------------------------
+echo "[start.sh] Waiting for backend port 8000 to accept connections..."
+python - <<'PY'
+import socket, time, sys
 
-if ! curl -fsS "http://127.0.0.1:8000/ping" >/dev/null 2>&1; then
-  echo "[start.sh] Backend never became reachable."
-  echo "------ /tmp/reflex.log (last 200 lines) ------"
+host, port = "127.0.0.1", 8000
+deadline = time.time() + 90  # seconds
+while time.time() < deadline:
+    s = socket.socket()
+    s.settimeout(1.0)
+    try:
+        s.connect((host, port))
+        s.close()
+        print("[start.sh] Backend port is open.")
+        sys.exit(0)
+    except Exception:
+        time.sleep(1)
+    finally:
+        try: s.close()
+        except: pass
+
+print("[start.sh] Backend never opened port 8000.")
+sys.exit(1)
+PY
+
+# If the python check failed, print logs and exit
+if ! python -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1',8000)); s.close()" >/dev/null 2>&1; then
+  echo "[start.sh] Backend not reachable. Showing last 200 lines of /tmp/reflex.log:"
   tail -n 200 /tmp/reflex.log || true
   kill "$BACK_PID" || true
   exit 1
 fi
 
 # ----------------------------
-# 2) Find exported static dir
+# 3) Find exported static dir (after reflex export in build step)
 # ----------------------------
-# Reflex export commonly writes to: .web/_static
-# Some setups produce: .web/dist
 STATIC_DIR=""
 if [ -d ".web/_static" ]; then
   STATIC_DIR=".web/_static"
@@ -54,32 +69,30 @@ fi
 echo "[start.sh] Serving static from ${STATIC_DIR}"
 
 # ----------------------------
-# 3) Install Caddy (reliable download)
+# 4) Install Caddy (reliable single-binary download)
 # ----------------------------
 echo "[start.sh] Installing Caddy..."
 if ! command -v caddy >/dev/null 2>&1; then
   curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /tmp/caddy
   chmod +x /tmp/caddy
   export PATH="/tmp:$PATH"
-  mv /tmp/caddy /tmp/caddy_bin
-  ln -sf /tmp/caddy_bin /tmp/caddy
 fi
 
 # ----------------------------
-# 4) Write Caddyfile (static + backend + websockets)
+# 5) Write Caddyfile (static + backend + websockets)
 # ----------------------------
 cat > Caddyfile <<EOF
 :{$PORT}
 
-# Serve the exported frontend
+# Serve exported frontend
 root * $STATIC_DIR
 file_server
 
-# Reflex backend endpoints (API + WebSocket event bus)
+# Reflex backend endpoints (API + event WebSocket)
 @reflex_backend path /_event* /_api* /ping* /health* /favicon.ico
 reverse_proxy @reflex_backend 127.0.0.1:8000
 
-# SPA fallback: if file not found, serve index.html
+# SPA fallback
 try_files {path} /index.html
 EOF
 
@@ -87,7 +100,7 @@ echo "[start.sh] Caddyfile:"
 cat Caddyfile
 
 # ----------------------------
-# 5) Run Caddy in foreground (so Render sees port open)
+# 6) Run Caddy in foreground (Render needs this)
 # ----------------------------
-echo "[start.sh] Starting Caddy..."
+echo "[start.sh] Starting Caddy on :${PORT}..."
 exec caddy run --config Caddyfile --adapter caddyfile
