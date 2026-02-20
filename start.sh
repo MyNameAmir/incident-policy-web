@@ -62,19 +62,36 @@ cat > Caddyfile <<EOF
   admin off
 }
 
-:${PORT}
+:${PORT} {
 
-root * .web/build/client
-file_server
+  log {
+    output stdout
+    format console
+  }
 
-@reflex_backend path /_event* /_api* /ping* /health*
-reverse_proxy @reflex_backend 127.0.0.1:8000
+  @reflex path /_event* /_api* /ping* /health*
 
-try_files {path} /index.html
+  handle @reflex {
+    reverse_proxy 127.0.0.1:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto {scheme}
+      header_up X-Forwarded-Host {host}
+    }
+  }
+
+  handle {
+    root * .web/build/client
+    file_server
+    try_files {path} /index.html
+  }
+}
 EOF
 
-echo "[start.sh] Caddyfile content (with line numbers):"
+echo "[start.sh] Caddyfile (numbered):"
 nl -ba Caddyfile
+
+echo "[start.sh] Validating Caddyfile..."
+caddy validate --config Caddyfile --adapter caddyfile
 
 echo "[start.sh] Sanity check: show listen line:"
 grep -nE '^\s*:' Caddyfile || true
@@ -92,6 +109,10 @@ caddy validate --config Caddyfile --adapter caddyfile || {
   cat Caddyfile
   exit 1
 }
+
+echo "[start.sh] Testing backend directly (local):"
+curl -sS -o /dev/null -w "GET /ping -> %{http_code}\n" http://127.0.0.1:8000/ping || true
+curl -sS -o /dev/null -w "GET /_event -> %{http_code}\n" http://127.0.0.1:8000/_event || true
 
 echo "[start.sh] Starting Caddy on port ${PORT}..."
 exec caddy run --config Caddyfile --adapter caddyfile
