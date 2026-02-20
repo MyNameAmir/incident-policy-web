@@ -33,7 +33,7 @@ EOF
 
 # --- start Reflex backend on localhost ONLY (important) ---
 echo "[start.sh] Starting Reflex backend on 127.0.0.1:8000 (internal only)..."
-reflex run --env prod --backend-only --backend-host 127.0.0.1 --backend-port 8000 > /tmp/reflex.log 2>&1 &
+poetry run reflex run --env prod --backend-only --backend-host 127.0.0.1 --backend-port 8000 > /tmp/reflex.log 2>&1 &
 
 # Wait for backend
 echo "[start.sh] Waiting for backend..."
