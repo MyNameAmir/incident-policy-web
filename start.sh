@@ -33,6 +33,10 @@ curl -fsSL https://caddyserver.com/api/download?os=linux\&arch=amd64 -o /tmp/cad
 chmod +x /tmp/caddy
 
 cat > Caddyfile <<'CADDY'
+{
+  admin off
+}
+
 :{$PORT}
 root * .web/build
 file_server
